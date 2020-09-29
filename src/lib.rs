@@ -26,8 +26,11 @@
 //!
 //! Like webpki, x509-signature is zero-copy and `#![no_std]` friendly.  If
 //! built without the `alloc` feature, x509-signature will not rely on features
-//! of *ring* that require heap allocation, specifically RSA.  x509-signature
-//! should never panic on any input.
+//! of *ring* that require heap allocation, specifically RSA.
+//!
+//! x509-signature should never panic on any input, regardless of its
+//! configuration options.  If it does panic, it is considered a security
+//! vulnerability and will be fixed with the highest priority.
 
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![deny(
@@ -58,6 +61,7 @@
     while_true,
     elided_lifetimes_in_paths
 )]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod das;
 mod sequence;
@@ -101,15 +105,18 @@ pub enum SignatureScheme {
     ED448,
 }
 
-#[cfg(not(feature = "webpki"))]
 /// Errors that can be produced when parsing a certificate or validating a
 /// signature.
 ///
 /// More errors may be added in the future.
+#[cfg(not(feature = "webpki"))]
+#[cfg_attr(docsrs, doc(cfg(not(feature = "webpki"))))]
 #[non_exhaustive]
 #[derive(Eq, PartialEq, Debug, Hash, Clone, Copy)]
 pub enum Error {
-    /// Version is not 3
+    /// Version is not valid.  Without the `legacy-certificates` feature, only
+    /// X.509 v3 certificates are supported.  If the `legacy-certificates`
+    /// feature is enabled, v1 and v2 certificates are also supported.
     UnsupportedCertVersion,
     /// Signature algorithm unsupported
     UnsupportedSignatureAlgorithm,
@@ -119,7 +126,11 @@ pub enum Error {
     InvalidSignatureForPublicKey,
     /// Signature algorithms don’t match
     SignatureAlgorithmMismatch,
-    /// Invalid DER
+    /// Invalid DER.  This will also result if the `legacy-certificates` feature
+    /// is disabled, but one of the (deprecated and virtually unused)
+    /// subjectUniqueId and issuerUniqueId fields are present.  Even if the
+    /// `legacy-certificates` feature is enabled, these fields will not
+    /// appear in the parsed certificate.
     BadDER,
     /// Invalid DER time
     BadDERTime,
@@ -131,6 +142,18 @@ pub enum Error {
     InvalidCertValidity,
     /// The issuer is not known.
     UnknownIssuer,
+}
+
+/// X509 certificate version
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
+#[repr(u8)]
+pub enum Version {
+    /// Version 1
+    V1 = 0,
+    /// Version 2
+    V2 = 1,
+    /// Version 3
+    V3 = 2,
 }
 
 #[cfg(feature = "webpki")]
@@ -300,12 +323,34 @@ pub fn parse_certificate<'a>(certificate: &'a [u8]) -> Result<X509Certificate<'a
     use core::convert::TryFrom as _;
     let das = DataAlgorithmSignature::try_from(certificate)?;
     untrusted::Input::from(&*das.inner()).read_all(Error::BadDER, |input| {
-        // We require extensions, which means we require version 3
+        #[cfg(feature = "legacy-certificates")]
+        const CONTEXT_SPECIFIC_PRIMITIVE_1: u8 = der::CONTEXT_SPECIFIC | 1;
+        #[cfg(feature = "legacy-certificates")]
+        const CONTEXT_SPECIFIC_PRIMITIVE_2: u8 = der::CONTEXT_SPECIFIC | 2;
+        const CONTEXT_SPECIFIC_CONSTRUCTED_3: u8 = der::Tag::ContextSpecificConstructed3 as _;
+        #[cfg(not(feature = "legacy-certificates"))]
         if input.read_bytes(5).map_err(|_| Error::BadDER)?
             != untrusted::Input::from(&[160, 3, 2, 1, 2])
         {
             return Err(Error::UnsupportedCertVersion);
         }
+        #[cfg(not(feature = "legacy-certificates"))]
+        let version = Version::V3;
+        #[cfg(feature = "legacy-certificates")]
+        let version = if input.peek(160) {
+            match input
+                .read_bytes(5)
+                .map_err(|_| Error::BadDER)?
+                .as_slice_less_safe()
+            {
+                &[160, 3, 2, 1, 2] => Version::V3,
+                &[160, 3, 2, 1, 1] => Version::V2,
+                &[160, 3, 2, _, _] => return Err(Error::UnsupportedCertVersion),
+                _ => return Err(Error::BadDER),
+            }
+        } else {
+            Version::V1
+        };
         // serialNumber
         let serial = der::positive_integer(input)
             .map_err(|_| Error::BadDER)?
@@ -327,21 +372,43 @@ pub fn parse_certificate<'a>(certificate: &'a [u8]) -> Result<X509Certificate<'a
         }
         let subject = das::read_sequence(input)?.as_slice_less_safe();
         let subject_public_key_info = SubjectPublicKeyInfo::read(input)?;
-        // subjectUniqueId and issuerUniqueId are unsupported
-
-        let extensions = if !input.at_end() {
-            let tag = der::Tag::ContextSpecificConstructed3;
-            der::nested(input, tag, Error::BadDER, |input| {
-                der::nested(input, der::Tag::Sequence, Error::BadDER, |input| {
-                    if input.at_end() {
+        #[cfg(feature = "legacy-certificates")]
+        let mut last_tag = 0;
+        let mut extensions = None;
+        while !input.at_end() {
+            let (tag, value) = der::read_tag_and_get_value(input).map_err(|_| Error::BadDER)?;
+            #[cfg(feature = "legacy-certificates")]
+            if tag <= last_tag {
+                return Err(Error::BadDER);
+            } else {
+                last_tag = tag;
+            }
+            match tag {
+                #[cfg(feature = "legacy-certificates")]
+                CONTEXT_SPECIFIC_PRIMITIVE_1 | CONTEXT_SPECIFIC_PRIMITIVE_2
+                    if version >= Version::V2 =>
+                    match *value.as_slice_less_safe() {
+                        [0, ..] => continue,
+                        [unused_bits, .., last]
+                            if unused_bits < 8 && last.trailing_zeros() >= unused_bits.into() =>
+                            continue,
+                        _ => return Err(Error::BadDER),
+                    },
+                CONTEXT_SPECIFIC_CONSTRUCTED_3 if version >= Version::V3 => {
+                    let extension_data = value.read_all(Error::BadDER, das::read_sequence)?;
+                    if extension_data.as_slice_less_safe().is_empty() {
                         return Err(Error::BadDER);
                     }
-                    Ok(ExtensionIterator(SequenceIterator::read(input)))
-                })
-            })
-        } else {
-            Ok(ExtensionIterator(SequenceIterator::read(input)))
-        }?;
+                    extensions = Some(extension_data);
+                    break;
+                },
+                _ => return Err(Error::BadDER),
+            }
+        }
+
+        let extensions = ExtensionIterator(SequenceIterator::read(&mut untrusted::Reader::new(
+            extensions.unwrap_or(untrusted::Input::from(b"")),
+        )));
 
         Ok(X509Certificate {
             das,
