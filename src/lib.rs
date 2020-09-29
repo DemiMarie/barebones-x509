@@ -484,5 +484,17 @@ mod tests {
         ca_cert.check_self_issued().unwrap();
         #[cfg(feature = "rsa")]
         cert.check_issued_by(&ca_cert).unwrap();
+        let mut extensions = vec![];
+        cert.extensions()
+            .iterate(&mut |oid, critical, e| {
+                Ok(extensions.push((oid, critical, e.as_slice_less_safe())))
+            })
+            .unwrap();
+        assert_eq!(extensions.len(), 6, "wrong number of extensions");
+        assert_eq!(extensions[0], (&[85, 29, 19][..], true, &b"\x30\0"[..]));
+        assert_eq!(extensions[1].0, &[85, 29, 14][..]);
+        assert!(!extensions[1].1);
+        assert_eq!(extensions[1].2.len(), 22);
+        assert_eq!(extensions[1].2[..2], b"\x04\x14"[..]);
     }
 }
