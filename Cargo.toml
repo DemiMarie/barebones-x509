@@ -24,6 +24,7 @@ webpki = ["w"]
 rustls = ["r", "std"]
 std = ["w/std"]
 legacy-certificates = []
+obsolete-unique-ids = ["legacy-certificates"]
 
 [package.metadata.docs.rs]
 rustc-args = ["--cfg", "docsrs"]
