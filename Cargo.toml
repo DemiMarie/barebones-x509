@@ -1,11 +1,11 @@
 [package]
 name = "x509-signature"
 version = "0.5.0"
-authors = ["Parity Technologies <admin@parity.io>"]
+authors = ["Parity Technologies <admin@parity.io>", "Demi Marie Obenour <demiobenour@gmail.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
 description = "Low-level X.509 parsing and signature verification library"
-repository = "https://github.com/paritytech/x509-signature"
+repository = "https://github.com/DemiMarie/barebones-x509"
 keywords = ["X509", "ASN1", "cryptography", "pki"]
 
 [dependencies]
