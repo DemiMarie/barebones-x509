@@ -1,5 +1,5 @@
 [package]
-name = "x509-signature"
+name = "barebones-x509"
 version = "0.5.0"
 authors = ["Parity Technologies <admin@parity.io>", "Demi Marie Obenour <demiobenour@gmail.com>"]
 edition = "2018"
