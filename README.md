@@ -10,7 +10,7 @@ barebones-x509’s flexibiity is a double-edged sword: it allows it to be used i
 where webpki cannot be used, but it also makes it significantly more dangerous.  As a general
 rule, barebones-x509 will accept any certificate that webpki will, but it will also accept
 certificates that webpki will reject.  If you find a certificate that barebones-x509 rejects
-and webpki rejects, please report it as a bug.
+and webpki accepts, please report it as a bug.
 
 barebones-x509 was developed for use with
 [libp2p](https://github.com/libp2p), which uses certificates that webpki
