@@ -52,7 +52,6 @@
 
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![deny(
-    const_err,
     deprecated,
     improper_ctypes,
     non_shorthand_field_patterns,
@@ -74,7 +73,7 @@
 #![forbid(
     unconditional_recursion,
     unsafe_code,
-    broken_intra_doc_links,
+    rustdoc::broken_intra_doc_links,
     while_true,
     elided_lifetimes_in_paths
 )]
@@ -364,7 +363,11 @@ fn parse_input<'a>(
     const CONTEXT_SPECIFIC_PRIMITIVE_2: u8 = der::CONTEXT_SPECIFIC | 2;
     const CONTEXT_SPECIFIC_CONSTRUCTED_3: u8 = der::Tag::ContextSpecificConstructed3 as _;
     #[cfg(not(feature = "legacy-certificates"))]
-    if input.read_bytes(5).map_err(|_| Error::BadDER)? != untrusted::Input::from(&[160, 3, 2, 1, 2])
+    if input
+        .read_bytes(5)
+        .map_err(|_| Error::BadDer)?
+        .as_slice_less_safe()
+        != untrusted::Input::from(&[160, 3, 2, 1, 2]).as_slice_less_safe()
     {
         return Err(Error::UnsupportedCertVersion);
     }
@@ -374,20 +377,20 @@ fn parse_input<'a>(
     let version = if input.peek(160) {
         match *input
             .read_bytes(5)
-            .map_err(|_| Error::BadDER)?
+            .map_err(|_| Error::BadDer)?
             .as_slice_less_safe()
         {
             [160, 3, 2, 1, 2] => Version::V3,
             [160, 3, 2, 1, 1] => Version::V2,
             [160, 3, 2, _, _] => return Err(Error::UnsupportedCertVersion),
-            _ => return Err(Error::BadDER),
+            _ => return Err(Error::BadDer),
         }
     } else {
         Version::V1
     };
     // serialNumber
     let serial = der::positive_integer(input)
-        .map_err(|_| Error::BadDER)?
+        .map_err(|_| Error::BadDer)?
         .big_endian_without_leading_zero();
     // signature
     if das::read_sequence(input)?.as_slice_less_safe() != das.algorithm() {
@@ -397,7 +400,7 @@ fn parse_input<'a>(
     // issuer
     let issuer = das::read_sequence(input)?.as_slice_less_safe();
     // validity
-    let (not_before, not_after) = der::nested(input, der::Tag::Sequence, Error::BadDER, |input| {
+    let (not_before, not_after) = der::nested(input, der::Tag::Sequence, Error::BadDer, |input| {
         Ok((time::read_time(input)?, time::read_time(input)?))
     })?;
     if not_before > not_after {
@@ -412,10 +415,10 @@ fn parse_input<'a>(
     let mut unique_ids = [None; 2];
     #[cfg_attr(not(feature = "obsolete-unique-ids"), allow(clippy::never_loop))]
     while !input.at_end() {
-        let (tag, value) = der::read_tag_and_get_value(input).map_err(|_| Error::BadDER)?;
+        let (tag, value) = der::read_tag_and_get_value(input).map_err(|_| Error::BadDer)?;
         #[cfg(feature = "obsolete-unique-ids")]
         if tag <= last_tag {
-            return Err(Error::BadDER);
+            return Err(Error::BadDer);
         } else {
             last_tag = tag;
         }
@@ -428,19 +431,19 @@ fn parse_input<'a>(
                     [0, ..] => {},
                     [unused_bits, .., last]
                         if unused_bits < 8 && last.trailing_zeros() >= unused_bits.into() => {},
-                    _ => return Err(Error::BadDER),
+                    _ => return Err(Error::BadDer),
                 }
                 unique_ids[usize::from(tag - CONTEXT_SPECIFIC_PRIMITIVE_1)] = Some(value)
-            }
+            },
             CONTEXT_SPECIFIC_CONSTRUCTED_3 if version >= Version::V3 => {
-                let extension_data = value.read_all(Error::BadDER, das::read_sequence)?;
+                let extension_data = value.read_all(Error::BadDer, das::read_sequence)?;
                 if extension_data.as_slice_less_safe().is_empty() {
-                    return Err(Error::BadDER);
+                    return Err(Error::BadDer);
                 }
                 extensions = Some(extension_data);
                 break;
             },
-            _ => return Err(Error::BadDER),
+            _ => return Err(Error::BadDer),
         }
     }
 
@@ -468,7 +471,7 @@ fn parse_input<'a>(
 pub fn parse_certificate(certificate: &[u8]) -> Result<X509Certificate<'_>, Error> {
     use core::convert::TryFrom as _;
     let das = DataAlgorithmSignature::try_from(certificate)?;
-    untrusted::Input::from(&*das.inner()).read_all(Error::BadDER, |i| parse_input(i, das))
+    untrusted::Input::from(das.inner()).read_all(Error::BadDer, |i| parse_input(i, das))
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 name = "barebones-x509"
 version = "0.5.2"
 authors = ["Parity Technologies <admin@parity.io>", "Demi Marie Obenour <demiobenour@gmail.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Low-level X.509 parsing and signature verification library"
 repository = "https://github.com/DemiMarie/barebones-x509"
@@ -10,13 +10,13 @@ keywords = ["X509", "ASN1", "cryptography", "pki"]
 readme = "README.md"
 
 [dependencies]
-ring = { version = "0.16.20", default-features = false }
-untrusted = "0.7.1"
-w = { package = "webpki", version = "0.21.4", optional = true, default-features = false }
-r = { package = "rustls", version = "0.19.1", optional = true }
+ring = { version = "0.17.5", default-features = false }
+untrusted = "0.9.0"
+w = { package = "webpki", version = "0.22.4", optional = true, default-features = false }
+r = { package = "rustls", version = "0.21.8", optional = true }
 
 [dev-dependencies]
-chrono = "0.4.19"
+chrono = "0.4.31"
 
 [features]
 default = ["rsa"]
