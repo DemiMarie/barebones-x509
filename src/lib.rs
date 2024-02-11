@@ -367,7 +367,7 @@ fn parse_input<'a>(
         .read_bytes(5)
         .map_err(|_| Error::BadDer)?
         .as_slice_less_safe()
-        != untrusted::Input::from(&[160, 3, 2, 1, 2]).as_slice_less_safe()
+        != &[160, 3, 2, 1, 2]
     {
         return Err(Error::UnsupportedCertVersion);
     }
